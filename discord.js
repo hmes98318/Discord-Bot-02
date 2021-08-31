@@ -36,6 +36,7 @@ class Music {
         this.connection = {};
         this.dispatcher = {};
         this.joinChannel = false;
+        this.musicLoop = false;
     }
 
 
@@ -97,7 +98,7 @@ class Music {
 
             // 如果目前正在播放歌曲就加入列隊，反之則播放歌曲
             if (this.isPlaying[guildID]) {
-                msg.channel.send(Embed_play('Queued', info.title, musicURL))
+                msg.channel.send(Embed_play('Queued', info.title, musicURL)).then(msg =>{msg.delete({ timeout: 60000 })})
                 //msg.channel.send(`歌曲加入列隊：${info.title}`);
             } else {
                 this.isPlaying[guildID] = true;
@@ -112,9 +113,10 @@ class Music {
     playMusic(msg, guildID, musicInfo) {
 
         // 提示播放音樂
-        msg.channel.send(Embed_play('Now Playing', musicInfo.name, musicInfo.url))
+        msg.channel.send(Embed_play('Now Playing', musicInfo.name, musicInfo.url)).then(msg =>{msg.delete({ timeout: 60000 })})
         //msg.channel.send(`播放音樂：${musicInfo.name}`);
 
+        console.log(musicInfo)
         // 播放音樂
         this.dispatcher[guildID] = this.connection[guildID].play(ytdl(musicInfo.url, { filter: 'audioonly' }));
 
@@ -122,18 +124,23 @@ class Music {
         //this.dispatcher[guildID].setVolume(0.5);
 
         // 移除 queue 中目前播放的歌曲
-        this.queue[guildID].shift();
+        //this.queue[guildID].shift();
 
         // 歌曲播放結束時的事件
         this.dispatcher[guildID].on('finish', () => {
-
             // 如果隊列中有歌曲
-            if (this.queue[guildID].length > 0) {
-                this.playMusic(msg, guildID, this.queue[guildID].shift());
-            } else {
-                //msg.channel.send('目前沒有音樂');
-                this.isPlaying[guildID] = false;
-                music.leave(msg)
+            if (this.musicLoop === true) {
+                music.playMusic(msg, guildID, musicInfo)
+            }
+            else {
+                this.queue[guildID].shift();
+                if (this.queue[guildID].length > 0) {
+                    this.playMusic(msg, guildID, this.queue[guildID][0]);
+                } else {
+                    //msg.channel.send('目前沒有音樂');
+                    this.isPlaying[guildID] = false;
+                    music.leave(msg)
+                }
             }
         });
     }
@@ -168,6 +175,17 @@ class Music {
         }
     }
 
+    loop(msg) {
+        if (this.musicLoop === true) {
+            this.musicLoop = false;
+            msg.react('❌')
+        }
+        else {
+            this.musicLoop = true;
+            msg.react('⭕')
+        }
+    }
+
     nowQueue(msg) {
         // 如果隊列中有歌曲就顯示
         if (this.queue[msg.guild.id] && this.queue[msg.guild.id].length > 0) {
@@ -191,7 +209,8 @@ class Music {
 
                 // 清空播放列表
                 delete this.queue[msg.guild.id];
-
+                //清空循環狀態
+                this.musicLoop = false;
                 // 改變 isPlaying 狀態為 false
                 this.isPlaying[msg.guild.id] = false;
             }
@@ -248,6 +267,11 @@ bot.on('message', async (msg) => {
         console.log(user, args);
     }
 
+    if (args === `${prefix}loop`) {
+        music.loop(msg);
+        console.log(user, args);
+    }
+
     // 查看隊列  // +queue
     if (args === `${prefix}queue`) {
         music.nowQueue(msg);
@@ -287,7 +311,7 @@ function Embed_queue(status, TitleName) {
 function Embed_help() {
     const Embed_help = new Discord.MessageEmbed()
         .setColor('#FFFFFF')
-        .addField('Help', '```+join      => 加入頻道\n+p空格網址  => 播放音樂\n+pause     => 暫停音樂\n+resume    => 恢復播放\n+skip      => 跳過音樂\n+queue     => 查看列隊\n+leave     => 離開頻道```', true)
+        .addField('Help', '```+join      => 加入頻道\n+p空格網址  => 播放音樂\n+pause     => 暫停音樂\n+resume    => 恢復播放\n+skip      => 跳過音樂\n+loop      => 循環音樂\n+queue     => 查看列隊\n+leave     => 離開頻道```', true)
         .setTimestamp()
     return Embed_help
 }
