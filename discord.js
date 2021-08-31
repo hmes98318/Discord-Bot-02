@@ -2,7 +2,7 @@ const Discord = require('discord.js');
 const ytdl = require('ytdl-core');
 const ytsr = require('ytsr');
 const { prefix } = require('./config.json');
-var auth = require('./auth.json');
+const auth = require('./auth.json');
 const bot = new Discord.Client();
 
 
@@ -12,16 +12,15 @@ const options = {
     gl: 'TW',
     hl: 'TW',
     limit: 1,
-    safeSearch: true,
 }
 
 
 
 
 // 連上線時的事件
-bot.on('ready', () => {
+bot.on('ready', (msg) => {
     console.log(`Logged in as ${bot.user.tag}!`);
-    bot.user.setPresence({ activity: { name: `?help` }, status: 'online' });
+    bot.user.setPresence({ activity: { name: `${prefix}help` }, status: 'online' });
 });
 bot.login(auth.token);
 
@@ -32,12 +31,11 @@ bot.login(auth.token);
 class Music {
 
     constructor() {
-        this.isPlaying = false;
+        this.isPlaying = {};
         this.queue = {};
         this.connection = {};
         this.dispatcher = {};
         this.joinChannel = false;
-        this.sameChannel = {};
     }
 
 
@@ -45,9 +43,9 @@ class Music {
         //youtube搜尋
         var firstResultBatch = await ytsr(msg, options);
         var data = JSON.stringify(firstResultBatch.items[0]);
-        data = JSON.parse(data)
-        console.log(data.url)
-        return String(data.url)
+        var { url } = JSON.parse(data)
+        console.log(url)
+        return url
     }
 
 
@@ -98,11 +96,11 @@ class Music {
             msg.react('👍')
 
             // 如果目前正在播放歌曲就加入列隊，反之則播放歌曲
-            if (this.isPlaying) {
-                msg.channel.send(Play_Embed('Queued', info.title, musicURL))
+            if (this.isPlaying[guildID]) {
+                msg.channel.send(Embed_play('Queued', info.title, musicURL))
                 //msg.channel.send(`歌曲加入列隊：${info.title}`);
             } else {
-                this.isPlaying = true;
+                this.isPlaying[guildID] = true;
                 this.playMusic(msg, guildID, this.queue[guildID][0]);
             }
 
@@ -114,7 +112,7 @@ class Music {
     playMusic(msg, guildID, musicInfo) {
 
         // 提示播放音樂
-        msg.channel.send(Play_Embed('Now Playing', musicInfo.name, musicInfo.url))
+        msg.channel.send(Embed_play('Now Playing', musicInfo.name, musicInfo.url))
         //msg.channel.send(`播放音樂：${musicInfo.name}`);
 
         // 播放音樂
@@ -133,8 +131,9 @@ class Music {
             if (this.queue[guildID].length > 0) {
                 this.playMusic(msg, guildID, this.queue[guildID].shift());
             } else {
-                this.isPlaying = false;
                 //msg.channel.send('目前沒有音樂');
+                this.isPlaying[guildID] = false;
+                music.leave(msg)
             }
         });
     }
@@ -175,7 +174,7 @@ class Music {
             // 字串處理，將 Object 組成字串
             var queueString = this.queue[msg.guild.id].map((item, index) => `[${index + 1}] ${item.name}`).join();
             queueString = queueString.split(',');
-            msg.channel.send(Queue_Embed('Queue', queueString))
+            msg.channel.send(Embed_queue('Queue', queueString))
             //msg.channel.send(queueString);
         } else {
             msg.react('❌')
@@ -185,11 +184,21 @@ class Music {
 
     leave(msg) {
         // 離開頻道
-        msg.react('👍')
-        this.isPlaying = false;
-        this.joinChannel = false;
-        this.queue[msg.guild.id] = [];
-        this.connection[msg.guild.id].disconnect();
+        if (this.connection[msg.guild.id] && this.connection[msg.guild.id].status === 0) {
+
+            // 如果機器人有播放過歌曲
+            if (this.queue.hasOwnProperty(msg.guild.id)) {
+
+                // 清空播放列表
+                delete this.queue[msg.guild.id];
+
+                // 改變 isPlaying 狀態為 false
+                this.isPlaying[msg.guild.id] = false;
+            }
+
+            // 離開頻道
+            this.connection[msg.guild.id].disconnect();
+        }
     }
 }
 const music = new Music();
@@ -201,7 +210,6 @@ bot.on('message', async (msg) => {
 
     var args = msg.content.toLowerCase()
     var user = msg.author.username + ' :';
-    var same = msg.member.voice.channelID;
 
 
     // 如果發送訊息的地方不是語音群（可能是私人）就 return
@@ -214,16 +222,12 @@ bot.on('message', async (msg) => {
     }
 
     // 播放音樂  // +p  // 如果使用者輸入的內容中包含 +p 
-    if (msg.content.indexOf(`${prefix}p`) > -1) {
+    if (args.indexOf(`${prefix}p`) > -1) {
         if (msg.member.voice.channel) {//使用者是否在語音頻道
-            if (same !== music.sameChannel) {//使用者是否在同一個語音頻道
-                music.sameChannel = same;
-                music.join(msg);
-            }
-
-            await music.play(msg);
-            console.log(user, args);
+            music.join(msg);
         }
+        await music.play(msg);
+        console.log(user, args);
     }
 
     // 恢復音樂  // +resume
@@ -256,34 +260,34 @@ bot.on('message', async (msg) => {
         console.log(user, args);
     }
 
-    if (args === `?help`) {
-        msg.channel.send(Help_Embed());
+    if (args === `${prefix}help`) {
+        msg.channel.send(Embed_help());
         console.log(user, args);
     }
 });
 
 
 
-function Play_Embed(status, TitleName, Url) {
-    const Play_Embed = new Discord.MessageEmbed()
+function Embed_play(status, TitleName, Url) {
+    const Embed_play = new Discord.MessageEmbed()
         .setColor('#FFFFFF')
         .addField(status, `[${TitleName}](${Url})`, true)
         .setTimestamp()
-    return Play_Embed
+    return Embed_play
 }
 
-function Queue_Embed(status, TitleName) {
-    const Queue_Embed = new Discord.MessageEmbed()
+function Embed_queue(status, TitleName) {
+    const Embed_queue = new Discord.MessageEmbed()
         .setColor('#FFFFFF')
         .addField(status, TitleName, true)
         .setTimestamp()
-    return Queue_Embed
+    return Embed_queue
 }
 
-function Help_Embed() {
-    const Help_Embed = new Discord.MessageEmbed()
+function Embed_help() {
+    const Embed_help = new Discord.MessageEmbed()
         .setColor('#FFFFFF')
         .addField('Help', '```+join      => 加入頻道\n+p空格網址  => 播放音樂\n+pause     => 暫停音樂\n+resume    => 恢復播放\n+skip      => 跳過音樂\n+queue     => 查看列隊\n+leave     => 離開頻道```', true)
         .setTimestamp()
-    return Help_Embed
+    return Embed_help
 }
